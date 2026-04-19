@@ -145,7 +145,7 @@
                 <div class="absolute bottom-0 left-0 w-full h-1.5 bg-slate-100"><div id="timer-progress" class="h-full bg-[#2551A3] transition-all duration-75 ease-linear w-full"></div></div>
                 <div class="flex justify-between w-full max-w-md items-center mb-2 px-2">
                     <div class="text-xs font-bold text-slate-500 uppercase tracking-wider">รายชื่อสุ่มล่าสุด</div>
-                    <div class="text-xs font-bold text-white bg-[#2551A3] px-3 py-1 rounded-full shadow-sm" id="time-left-text">10 วิ</div>
+                    <div class="text-xs font-bold text-white bg-[#2551A3] px-3 py-1 rounded-full shadow-sm" id="time-left-text">20 วิ</div>
                 </div>
                 <div id="current-draw" class="text-3xl sm:text-4xl font-black text-slate-800 min-h-[4rem] flex items-center text-center justify-center mb-4 transition-all duration-300 drop-shadow-sm"> - รอกดสุ่ม - </div>
                 <div id="host-controls" class="hidden w-full flex flex-col items-center gap-2">
@@ -214,17 +214,21 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, getDoc, updateDoc, onSnapshot, arrayUnion } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js";
 
+        // --- Firebase Configuration ---
         const firebaseConfig = {
             apiKey: "AIzaSyCNRbSqggQNgPfDIhs5RHrDqREIjG6b-W8",
             authDomain: "catholicyouthbingo.firebaseapp.com",
             projectId: "catholicyouthbingo",
             storageBucket: "catholicyouthbingo.firebasestorage.app",
             messagingSenderId: "454077577155",
-            appId: "1:454077577155:web:530e10d83fb50805ecaf76"
+            appId: "1:454077577155:web:530e10d83fb50805ecaf76",
+            measurementId: "G-Y78G7XKRWN"
         };
 
         const app = initializeApp(firebaseConfig);
+        const analytics = getAnalytics(app);
         const auth = getAuth(app);
         const db = getFirestore(app);
         const appId = "catholic-bingo-chan"; 
@@ -234,6 +238,7 @@
 
         let user = null, pName = "", rId = null, isH = false, unsub = null, board = [], marked = new Array(25).fill(false), forfeited = new Array(25).fill(false), bingod = false, rData = null, sc = 1;
         let hInt = null, cInt = null, curN = "", curDrawTs = 0, localDrawStartTime = 0, curMatch = -1, curRid = "", gStart = 0, gInt = null, sound = true, aCtx = null, isDrawing = false;
+        let isWaitingToDraw = false; // ตัวแปรสถานะบอกว่ากำลังหน่วงเวลา 5 วิ
 
         function toast(m, e=false) { 
             const t = document.getElementById('toast'); document.getElementById('toast-msg').innerText = m; document.getElementById('toast-icon').innerText = e ? '❌' : '🔔'; 
@@ -247,7 +252,6 @@
 
         const startAuth = async () => {
             try { await signInAnonymously(auth); } catch (err) {
-                console.error(err);
                 if (err.code === 'auth/configuration-not-found') {
                     document.getElementById('loading-spinner').classList.add('hidden');
                     document.getElementById('loading-text').classList.add('hidden');
@@ -268,20 +272,20 @@
             const n = document.getElementById('player-name').value.trim(); if(!n) return toast("กรุณาใส่ชื่อของคุณก่อน", true);
             pName = n; const pin = Math.random().toString(36).substring(2,6).toUpperCase();
             try {
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v12_rooms', pin), { 
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v13_rooms', pin), { 
                     hostId: user.uid, hostName: pName, pool: shuffle(allSaints), drawn: [], winners: {}, 
                     scores: {[user.uid]: {name: pName, score: 1}}, playersReady: {}, status: 'waiting', 
                     roundId: Date.now().toString(), createdAt: new Date().toISOString() 
                 });
                 enter(pin, true);
-            } catch(e) { console.error(e); toast("สร้างห้องไม่ได้! เช็ค Rules อีกครั้ง", true); }
+            } catch(e) { toast("สร้างห้องไม่ได้! เช็ค Rules อีกครั้ง", true); }
         };
 
         document.getElementById('btn-join-room').onclick = async () => {
             if(!user) return toast("กำลังยืนยันตัวตน โปรดรอสักครู่", true);
             const n = document.getElementById('player-name').value.trim(), pin = document.getElementById('room-pin-input').value.trim().toUpperCase();
             if(!n || pin.length !== 4) return toast("กรุณาใส่ชื่อและรหัสห้อง", true); pName = n;
-            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'v12_rooms', pin);
+            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'v13_rooms', pin);
             try {
                 const s = await getDoc(ref);
                 if(s.exists() && (s.data().status === 'waiting' || s.data().status === 'playing')) { 
@@ -297,7 +301,7 @@
             document.getElementById('host-controls').classList.toggle('hidden', !host);
             document.getElementById('player-waiting').classList.toggle('hidden', host);
             document.getElementById('screen-lobby').classList.add('hidden'); document.getElementById('screen-game').classList.remove('hidden');
-            unsub = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'v12_rooms', pin), (s) => { 
+            unsub = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'v13_rooms', pin), (s) => { 
                 if(s.exists()) { rData = s.data(); sync(rData); } 
                 else { toast("ห้องถูกยุติการใช้งานแล้ว", true); exitLocally(); } 
             });
@@ -306,10 +310,11 @@
         function setupLocal() {
             bingod = false; board = shuffle([...allSaints]).slice(0, 24); board.splice(12,0,"ฟรี");
             marked.fill(false); marked[12] = true; forfeited.fill(false); sc = 1; curDrawTs = 0; localDrawStartTime = 0; curN = "";
+            isWaitingToDraw = false; isDrawing = false;
             clearInterval(cInt); clearInterval(gInt); clearInterval(hInt); hInt = null;
             document.getElementById('timer-progress').style.width = '100%'; document.getElementById('global-timer').innerText = '00:00';
             document.getElementById('win-modal').classList.add('hidden'); document.getElementById('bingo-overlay').classList.add('hidden'); 
-            document.getElementById('current-draw').innerText = '- รอกดสุ่ม -'; document.getElementById('time-left-text').innerText = '10 วิ';
+            document.getElementById('current-draw').innerText = '- รอกดสุ่ม -'; document.getElementById('time-left-text').innerText = '20 วิ';
             document.getElementById('pass-container').classList.add('hidden');
             renderBoard();
         }
@@ -330,23 +335,36 @@
             document.getElementById('draw-history-container').innerHTML = hHTML || '<span class="text-slate-400 italic">ยังไม่มีการสุ่ม</span>';
             document.getElementById('draw-history-mobile').innerHTML = hHTML;
 
-            // ตรรกะ Auto-Skip ของหัวหน้าห้อง: จะข้ามได้เมื่อนับจำนวนคนพร้อม (ตรงกับรอบปัจจุบัน) ครบทุกคนจริงๆ เท่านั้น
+            // ตรรกะตรวจเช็คความพร้อม (รอจนครบ 100% แล้วดีเลย์อีก 5 วิ)
             if(isH && d.status === 'playing' && hInt && d.currentDraw) {
                 const nP = Object.keys(d.scores || {}).length;
                 const nB = Object.keys(d.winners || {}).length;
                 let nR = 0;
+                
                 if(d.playersReady) {
                     for (const uid in d.playersReady) {
                         if (d.playersReady[uid] === d.currentDraw.ts) nR++;
                     }
                 }
-                if(nP > 0 && (nR + nB) >= nP) nextDraw();
+
+                // ถ้าทุกคนกดครบแล้ว และยังไม่ได้ตั้งเวลาหน่วงไว้
+                if(nP > 0 && (nR + nB) >= nP && !isWaitingToDraw) {
+                    isWaitingToDraw = true;
+                    document.getElementById('current-draw').innerText = 'กำลังเตรียมสุ่ม...';
+                    document.getElementById('current-draw').classList.add('text-slate-400');
+                    setTimeout(() => {
+                        if (hInt) nextDraw();
+                    }, 5000); // หน่วงเวลา 5 วินาที
+                }
             }
 
             if(d.status === 'ended') { stopAll(); showFinal(d.winners, d.scores); return; }
 
-            // จับเวลาของแต่ละเครื่องโดยอิงจากการรับค่าข้อมูล (แก้ปัญหาเวลาเครื่องไม่ตรงกัน)
+            // ตรวจจับเมื่อมีการสุ่มชื่อใหม่จริงๆ
             if(d.currentDraw && d.currentDraw.ts !== curDrawTs) {
+                isWaitingToDraw = false; // ล้างสถานะหน่วงเวลา
+                document.getElementById('current-draw').classList.remove('text-slate-400');
+                
                 curN = d.currentDraw.name; curDrawTs = d.currentDraw.ts; localDrawStartTime = Date.now(); curMatch = board.indexOf(curN);
                 const el = document.getElementById('current-draw'); el.innerText = curN; el.classList.add('scale-110'); setTimeout(() => el.classList.remove('scale-110'), 200);
                 speak(curN); if(!bingod) startRound();
@@ -359,17 +377,18 @@
             clearInterval(cInt); const bar = document.getElementById('timer-progress'), txt = document.getElementById('time-left-text'), pass = document.getElementById('pass-container');
             if(curMatch === -1) pass.classList.remove('hidden'); else pass.classList.add('hidden');
             document.querySelectorAll('.flash-warning').forEach(c => c.classList.remove('flash-warning'));
-            let lastT = 10;
+            let lastT = 20;
             
             cInt = setInterval(() => {
-                let left = Math.max(0, 10000-(Date.now()-localDrawStartTime)), sec = Math.ceil(left/1000);
-                bar.style.width = `${(left/10000)*100}%`; bar.className = `h-full ${left < 3000 ? 'bg-red-500' : 'bg-[#2551A3]'} transition-all ease-linear`;
+                let left = Math.max(0, 20000-(Date.now()-localDrawStartTime)); // เปลี่ยนเป็น 20 วินาที
+                let sec = Math.ceil(left/1000);
+                bar.style.width = `${(left/20000)*100}%`; bar.className = `h-full ${left < 5000 ? 'bg-red-500' : 'bg-[#2551A3]'} transition-all ease-linear`;
                 txt.innerText = `${sec} วิ`; 
+                
                 if (sec < lastT && sec <= 5 && sec > 0) { playTone(1000, 'triangle', 0.05); lastT = sec; }
+                if (left <= 5000 && curMatch !== -1 && !marked[curMatch]) document.getElementById(`c-${curMatch}`).classList.add('flash-warning');
                 
-                if(left <= 5000 && curMatch !== -1 && !marked[curMatch]) document.getElementById(`c-${curMatch}`).classList.add('flash-warning');
-                
-                if(left <= 0) { 
+                if (left <= 0) { 
                     clearInterval(cInt); pass.classList.add('hidden'); 
                     if(curMatch !== -1 && !marked[curMatch]) { 
                         forfeited[curMatch] = true; 
@@ -377,7 +396,7 @@
                         cell.classList.remove('flash-warning'); cell.classList.add('missed-cell'); 
                         playTone(300, 'square', 0.15); 
                     } 
-                    ready(); // ส่งสัญญาณว่าหมดเวลาของเครื่องนี้แล้ว
+                    ready(); // ส่งสัญญาณว่าหมดเวลาของเครื่องนี้แล้ว เพื่อให้หัวหน้าห้องนับรวมได้
                 }
             }, 50);
         }
@@ -395,47 +414,49 @@
             if(bingod || !rData || rData.status !== 'playing' || i === 12 || board[i] !== curN || forfeited[i] || marked[i]) { playTone(200, 'square', 0.1); return; }
             playTone(800, 'sine', 0.1); marked[i] = true; sc++; 
             const cell = document.getElementById(`c-${i}`); cell.classList.remove('flash-warning'); cell.classList.add('marked');
-            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v12_rooms', rId), { [`scores.${user.uid}.score`]: sc });
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v13_rooms', rId), { [`scores.${user.uid}.score`]: sc });
             ready(); check();
         }
 
         function ready() { 
             if(user && rData && rData.currentDraw) {
-                // บันทึกเวลาที่ใช้ยืนยันของรอบนี้
-                updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v12_rooms', rId), { 
+                updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v13_rooms', rId), { 
                     [`playersReady.${user.uid}`]: rData.currentDraw.ts 
-                }).catch(e=>console.log("Ready Update Cancelled")); 
+                }).catch(e=>console.log("Sync delay ignored")); 
             }
         }
 
         function check() { if(winPatterns.some(p => p.every(idx => marked[idx]))) { bingod = true; playTone(1200, 'sine', 0.5); document.getElementById('bingo-overlay').classList.remove('hidden'); winPatterns.find(p => p.every(idx => marked[idx])).forEach(idx => document.getElementById(`c-${idx}`).classList.add('winning-cell')); submitWin(); } }
-        async function submitWin() { const elapsed = document.getElementById('global-timer').innerText; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v12_rooms', rId), { [`winners.${user.uid}`]: {name: pName, time: elapsed, ts: Date.now()} }); }
+        async function submitWin() { const elapsed = document.getElementById('global-timer').innerText; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v13_rooms', rId), { [`winners.${user.uid}`]: {name: pName, time: elapsed, ts: Date.now()} }); }
 
         document.getElementById('btn-pass').onclick = () => { document.getElementById('pass-container').classList.add('hidden'); ready(); };
         
         document.getElementById('btn-start-auto').onclick = async () => { 
-            if(rData.status === 'waiting') await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v12_rooms', rId), { status: 'playing', gameStartTime: Date.now() }); 
+            if(rData.status === 'waiting') await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v13_rooms', rId), { status: 'playing', gameStartTime: Date.now() }); 
             nextDraw(); 
         };
         
-        document.getElementById('btn-stop-auto').onclick = () => { clearInterval(hInt); hInt = null; document.getElementById('btn-start-auto').classList.remove('hidden'); document.getElementById('btn-stop-auto').classList.add('hidden'); };
-        document.getElementById('btn-end-game').onclick = () => { if(confirm("ต้องการสรุปคะแนนและประกาศผลใช่หรือไม่?")) updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v12_rooms', rId), { status: 'ended' }); };
+        document.getElementById('btn-stop-auto').onclick = () => { clearInterval(hInt); hInt = null; isWaitingToDraw = false; document.getElementById('btn-start-auto').classList.remove('hidden'); document.getElementById('btn-stop-auto').classList.add('hidden'); };
+        document.getElementById('btn-end-game').onclick = () => { if(confirm("ต้องการสรุปคะแนนและประกาศผลใช่หรือไม่?")) updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v13_rooms', rId), { status: 'ended' }); };
 
         async function nextDraw() {
             if(isDrawing) return;
             if(!rData || rData.status !== 'playing' || rData.pool.length === 0) { if(hInt) clearInterval(hInt); hInt = null; return; }
             isDrawing = true;
-            if(hInt) clearInterval(hInt); hInt = setInterval(nextDraw, 10000); // รับประกันเวลาสูงสุดคือ 10 วิ แม้มีคนไม่กด
+            
+            // เปลี่ยน Backup timer เป็น 28 วินาที (20 วิสำหรับเล่น + 8 วินาทีเผื่อดีเลย์เครือข่าย)
+            if(hInt) clearInterval(hInt); hInt = setInterval(nextDraw, 28000); 
+            
             let p = [...rData.pool], d = [...(rData.drawn || [])], n = p.pop(); d.push(n);
             
             try {
-                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v12_rooms', rId), { 
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v13_rooms', rId), { 
                     pool: p, drawn: d, currentDraw: {name: n, ts: Date.now()}, playersReady: {} 
                 });
             } catch(e) {}
             
             document.getElementById('btn-start-auto').classList.add('hidden'); document.getElementById('btn-stop-auto').classList.remove('hidden'); document.getElementById('btn-end-game').classList.remove('hidden');
-            setTimeout(() => { isDrawing = false; }, 1000); // ป้องกันบั๊กกดสุ่มรัว
+            setTimeout(() => { isDrawing = false; }, 1000); 
         }
 
         function showFinal(ws, ss) {
@@ -456,11 +477,11 @@
 
         document.getElementById('btn-play-again').onclick = () => { 
             const s = {}; Object.keys(rData.scores).forEach(u => s[u] = {name: rData.scores[u].name, score: 1}); 
-            updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v12_rooms', rId), { pool: shuffle(allSaints), drawn: [], currentDraw: null, winners: {}, playersReady: {}, gameStartTime: null, roundId: Date.now().toString(), scores: s, status: 'waiting' }); 
+            updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v13_rooms', rId), { pool: shuffle(allSaints), drawn: [], currentDraw: null, winners: {}, playersReady: {}, gameStartTime: null, roundId: Date.now().toString(), scores: s, status: 'waiting' }); 
         };
         
-        document.getElementById('btn-exit-to-lobby').onclick = () => { if(isH) updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v12_rooms', rId), { status: 'disbanded' }); exitLocally(); };
-        document.getElementById('btn-leave-game').onclick = () => { if(confirm("แน่ใจหรือไม่ที่จะออกจากห้อง?")) { if(isH) updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v12_rooms', rId), { status: 'disbanded' }); exitLocally(); } };
+        document.getElementById('btn-exit-to-lobby').onclick = () => { if(isH) updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v13_rooms', rId), { status: 'disbanded' }); exitLocally(); };
+        document.getElementById('btn-leave-game').onclick = () => { if(confirm("แน่ใจหรือไม่ที่จะออกจากห้อง?")) { if(isH) updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'v13_rooms', rId), { status: 'disbanded' }); exitLocally(); } };
 
         function exitLocally() { if(unsub) unsub(); stopAll(); document.getElementById('win-modal').classList.add('hidden'); document.getElementById('screen-game').classList.add('hidden'); document.getElementById('screen-lobby').classList.remove('hidden'); }
         function stopAll() { clearInterval(cInt); clearInterval(gInt); clearInterval(hInt); window.speechSynthesis.cancel(); }
